@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subtitle Auditor v5.9 | Full Suite + Export</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+    <style>
+        :root { --primary: #2563eb; --vtt-color: #f97316; --txt-color: #3b82f6; --bg: #f8fafc; --success: #166534; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); padding: 20px; color: #1e293b; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        
+        .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+        .card { border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; background: #fff; }
+        textarea { width: 100%; height: 60px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; font-size: 0.85rem; box-sizing: border-box; }
+        
+        .diff-wrapper { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 25px; }
+        .pane-container { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: white; }
+        .pane-header { background: #f1f5f9; padding: 12px; font-weight: bold; text-align: center; border-bottom: 1px solid #e2e8f0; color: #475569; }
+        .diff-pane { height: 400px; overflow: auto; padding: 20px; white-space: pre-wrap; font-family: 'Consolas', monospace; font-size: 0.85rem; line-height: 1.6; }
+        
+        .match-fail-txt { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
+        .match-fail-sub { background: #dcfce7; color: #166534; font-weight: bold; }
+        .vtt-meta { color: #94a3b8; font-style: italic; }
+
+        .scorecard { background: #eff6ff; border: 2px solid #bfdbfe; padding: 15px; border-radius: 8px; margin: 25px 0; text-align: center; display: flex; justify-content: center; align-items: center; gap: 20px; }
+        .score-val { font-size: 2.2rem; font-weight: bold; color: var(--primary); }
+        .score-label { font-size: 0.9rem; text-transform: uppercase; color: #1e40af; font-weight: bold; }
+
+        .section-header { margin-top: 35px; padding: 12px; font-weight: bold; color: white; border-radius: 8px 8px 0 0; display: flex; justify-content: space-between; align-items: center; }
+        .header-vtt { background: var(--vtt-color); }
+        .header-txt { background: var(--txt-color); }
+        .word-count-badge { background: rgba(255,255,255,0.25); padding: 2px 12px; border-radius: 12px; font-size: 0.8rem; }
+        
+        .output-container { border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px; background: white; margin-bottom: 20px; }
+        .row { padding: 15px; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; }
+        .sentence-box { color: #64748b; font-style: italic; display: block; margin-top: 5px; border-left: 3px solid #cbd5e1; padding-left: 10px; }
+        .success-msg { padding: 30px; text-align: center; color: var(--success); font-weight: bold; background: #f0fdf4; border: 1px dashed var(--success); border-radius: 8px; margin: 10px 0; }
+        
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        button { flex: 1; padding: 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1rem; border: none; }
+        .primary-btn { background: var(--primary); color: white; }
+        .secondary-btn { background: #64748b; color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Precision Subtitle Auditor</h1>
+    
+    <div class="setup-grid">
+        <div class="card"><strong>1. Subtitle (.vtt)</strong><input type="file" id="subFile" accept=".vtt"></div>
+        <div class="card"><strong>2. Transcript (.txt)</strong><input type="file" id="transFile" accept=".txt"></div>
+    </div>
+
+    <div class="setup-grid">
+        <div class="card"><strong>Non-Accessible</strong><textarea id="l_acc">Click, Tap, Press, Hover, Zoom, Pinch, Swipe, Scroll, Drag and drop</textarea></div>
+        <div class="card"><strong>Directional</strong><textarea id="l_dir">Left, Right, Top, Bottom, Above, Below, Under, Beside</textarea></div>
+        <div class="card"><strong>Non-Inclusive</strong><textarea id="l_inc">See, Look, Hear, Watch, View, Observe, Listen</textarea></div>
+        <div class="card"><strong>Vague Terms</strong><textarea id="l_oth">This, That, Here, There, These, Those, Like so</textarea></div>
+    </div>
+
+    <div class="btn-group">
+        <button id="runBtn" class="primary-btn" onclick="process()" disabled>Initializing AI Engine...</button>
+        <button id="dlBtn" class="secondary-btn" onclick="downloadReport()" style="display:none;">Download Audit Report</button>
+    </div>
+    
+    <div id="auditOutput" style="display:none;">
+        <div class="diff-wrapper">
+            <div class="pane-container"><div class="pane-header">Transcript (Options 1 & 2)</div><div id="paneTxt" class="diff-pane"></div></div>
+            <div class="pane-container"><div class="pane-header">Subtitle (Options 1 & 2)</div><div id="paneSub" class="diff-pane"></div></div>
+        </div>
+        <div id="scoreArea"></div>
+        <div id="listArea"></div>
+    </div>
+</div>
+
+<script>
+    let pyodide; let lastRes = null;
+    async function init() { pyodide = await loadPyodide(); document.getElementById('runBtn').innerText = "Run Full Analysis"; document.getElementById('runBtn').disabled = false; }
+    init();
+
+    async function process() {
+        const subF = document.getElementById('subFile').files[0];
+        const transF = document.getElementById('transFile').files[0];
+        if(!subF || !transF) return alert("Please select both files.");
+        
+        window.data_sub = await subF.text();
+        window.data_trans = await transF.text();
+        window.l_acc = document.getElementById('l_acc').value;
+        window.l_dir = document.getElementById('l_dir').value;
+        window.l_inc = document.getElementById('l_inc').value;
+        window.l_oth = document.getElementById('l_oth').value;
+
+        const pythonCode = `
+import re, difflib
+from js import data_sub, data_trans, l_acc, l_dir, l_inc, l_oth
+
+def run():
+    def get_tokens(text):
+        tokens = []
+        for line in text.splitlines():
+            is_meta = bool(re.search(r'(\\d{2}:|WEBVTT|-->|^\\d+$)', line))
+            for w in line.split(' '):
+                clean_w = re.sub(r'[^\\w]', '', w).lower()
+                tokens.append({'orig': w, 'clean': clean_w, 'meta': is_meta, 'newline': False})
+            if tokens: tokens[-1]['newline'] = True
+        return tokens
+
+    t_toks, s_toks = get_tokens(data_trans), get_tokens(data_sub)
+    t_c = [t['clean'] for t in t_toks if not t['meta'] and t['clean']]
+    s_c = [s['clean'] for s in s_toks if not s['meta'] and s['clean']]
+    sm = difflib.SequenceMatcher(None, t_c, s_c)
+    t_m, s_m = [False]*len(t_c), [False]*len(s_c)
+    for m in sm.get_matching_blocks():
+        for i in range(m.size):
+            if m.a+i < len(t_m): t_m[m.a+i] = True
+            if m.b+i < len(s_m): s_m[m.b+i] = True
+
+    def build_html(toks, flags, css):
+        h, idx = [], 0
+        for t in toks:
+            w = t['orig']
+            if not t['meta'] and t['clean']:
+                if idx < len(flags) and not flags[idx]: w = f'<span class="{css}">{w}</span>'
+                idx += 1
+            elif t['meta']: w = f'<span class="vtt-meta">{w}</span>'
+            h.append(w + ('<br>' if t['newline'] else ' '))
+        return "".join(h)
+
+    cats = {"non-accessible": l_acc, "directional": l_dir, "non-inclusive": l_inc, "other": l_oth}
+    a_vtt, a_txt = [], []
+    ts = "00:00"
+    for line in data_sub.splitlines():
+        m = re.search(r'(\\d{2}:(\\d{2}:\\d{2}))\\.', line)
+        if m: ts = m.group(2); continue
+        for cn, raw_ws in cats.items():
+            for w in [x.strip() for x in raw_ws.split(",") if x.strip()]:
+                if re.search(f'\\\\b{re.escape(w)}\\\\b', line, re.I):
+                    a_vtt.append({"cat": cn, "word": w.upper(), "ts": ts, "line": line.strip()})
+    
+    for s in re.split(r'(?<=[.!?])\\s+', data_trans.replace('\\n',' ')):
+        for cn, raw_ws in cats.items():
+            for w in [x.strip() for x in raw_ws.split(",") if x.strip()]:
+                if re.search(f'\\\\b{re.escape(w)}\\\\b', s, re.I):
+                    a_txt.append({"cat": cn, "word": w.upper(), "line": s.strip()})
+
+    return {"score": round(sm.ratio()*100), "txt_h": build_html(t_toks, t_m, "match-fail-txt"), "sub_h": build_html(s_toks, s_m, "match-fail-sub"), "a_vtt": a_vtt, "a_txt": a_txt}
+run()`;
+        lastRes = (await pyodide.runPythonAsync(pythonCode)).toJs();
+        render();
+    }
+
+    function render() {
+        document.getElementById('auditOutput').style.display = 'block';
+        document.getElementById('dlBtn').style.display = 'inline-block';
+        document.getElementById('paneTxt').innerHTML = lastRes.get('txt_h');
+        document.getElementById('paneSub').innerHTML = lastRes.get('sub_h');
+        document.getElementById('scoreArea').innerHTML = `<div class="scorecard"><span class="score-label">File Similarity Match:</span><span class="score-val">${lastRes.get('score')}%</span></div>`;
+        
+        const listArea = document.getElementById('listArea');
+        listArea.innerHTML = "";
+        [{id:"a_vtt", t:"Option 3: Subtitle Audit", c:"header-vtt", v:true}, {id:"a_txt", t:"Option 4: Transcript Audit", c:"header-txt", v:false}].forEach(sec => {
+            const items = lastRes.get(sec.id);
+            listArea.innerHTML += `<div class="section-header ${sec.c}"><span>${sec.t}</span><span class="word-count-badge">${items.length} flags</span></div>`;
+            if (items.length === 0) listArea.innerHTML += `<div class="success-msg">✅ No non-inclusive, non-accessible, directional or other category words are present good to go</div>`;
+            else {
+                let h = `<div class="output-container">`;
+                items.forEach(i => {
+                    const l1 = sec.v ? `The <strong>${i.get('cat')}</strong> term "<strong>${i.get('word')}</strong>" is present in timeframe "<strong>${i.get('ts')}</strong>"` : `The <strong>${i.get('cat')}</strong> term "<strong>${i.get('word')}</strong>" is present.`;
+                    h += `<div class="row">${l1}<br><span class="sentence-box">Sentence: "${i.get('line')}"</span></div>`;
+                });
+                listArea.innerHTML += h + `</div>`;
+            }
+        });
+    }
+
+    function downloadReport() {
+        if(!lastRes) return;
+        let txt = `SUBTITLE AUDIT REPORT\n====================\nSimilarity Score: ${lastRes.get('score')}%\n\n`;
+        ["a_vtt", "a_txt"].forEach(id => {
+            txt += `${id === "a_vtt" ? "OPTION 3: SUBTITLE" : "OPTION 4: TRANSCRIPT"}\n--------------------\n`;
+            const items = lastRes.get(id);
+            if(items.length === 0) txt += "Result: Good to go. No flags found.\n\n";
+            else items.forEach(i => {
+                txt += `- [${i.get('cat').toUpperCase()}] Word: ${i.get('word')} ${id === "a_vtt" ? "@ " + i.get('ts') : ""}\n  Sentence: ${i.get('line')}\n`;
+            });
+            txt += "\n";
+        });
+        const blob = new Blob([txt], {type: 'text/plain'});
+        const anchor = document.createElement('a');
+        anchor.href = URL.createObjectURL(blob);
+        anchor.download = "Audit_Report.txt";
+        anchor.click();
+    }
+</script>
+</body>
+</html>
